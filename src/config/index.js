@@ -1,5 +1,6 @@
 module.exports = {
   PORT: process.env.PORT || 3001,
+  MDNS_NAME: 'gelato-agent',   // reachable as gelato-agent.local on LAN
 
   // BLE UUIDs
   BLE_SERVICE_UUID: 'ff00',
