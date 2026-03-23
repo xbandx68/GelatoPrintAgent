@@ -4,6 +4,7 @@ const { app, Tray, Menu, nativeImage, dialog, shell } = require('electron');
 const path = require('path');
 const os   = require('os');
 const http = require('http');
+const Jimp = require('jimp');
 
 // ── Single instance lock ──────────────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
@@ -14,24 +15,23 @@ require('../src/server.js');
 const printerService = require('../src/services/printer.service');
 const config         = require('../src/config');
 
-// ── Icon builder (colored circle via raw PNG buffer) ─────────────────────────
-// Generates a 32x32 RGBA PNG with a filled circle — no external icon files needed.
-function buildCircleIcon(r, g, b) {
-  const size = 32;
-  const cx = size / 2, cy = size / 2, radius = 13;
-
-  // PNG: signature + IHDR + IDAT (raw deflate) + IEND
-  // Use nativeImage.createFromDataURL with a small SVG instead — simpler and
-  // guaranteed to work on all Electron versions.
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">
-    <circle cx="${cx}" cy="${cy}" r="${radius}" fill="rgb(${r},${g},${b})"/>
-  </svg>`;
-  const dataUrl = 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
-  return nativeImage.createFromDataURL(dataUrl);
+// ── Icon builder — Jimp PNG (works reliably as Windows tray icon) ─────────────
+async function buildCircleIcon(r, g, b) {
+  const size = 32, cx = 16, cy = 16, radius = 13;
+  const image = await Jimp.create(size, size, 0x00000000); // transparent
+  const color = Jimp.rgbaToInt(r, g, b, 255);
+  for (let x = 0; x < size; x++) {
+    for (let y = 0; y < size; y++) {
+      if ((x - cx) ** 2 + (y - cy) ** 2 <= radius ** 2)
+        image.setPixelColor(color, x, y);
+    }
+  }
+  const buf = await image.getBufferAsync(Jimp.MIME_PNG);
+  return nativeImage.createFromBuffer(buf);
 }
 
-const ICON_DISCONNECTED = buildCircleIcon(239, 68,  68);  // red-500
-const ICON_CONNECTED    = buildCircleIcon(34,  197, 94);  // green-500
+// Icons are built async in app.whenReady()
+let ICON_DISCONNECTED, ICON_CONNECTED;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function getLocalIp() {
@@ -155,6 +155,10 @@ async function scanAndConnect() {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   if (app.dock) app.dock.hide(); // macOS: no dock icon
+
+  // Build PNG icons now (async, Jimp — works on Windows tray)
+  ICON_DISCONNECTED = await buildCircleIcon(239, 68,  68); // red-500
+  ICON_CONNECTED    = await buildCircleIcon(34,  197, 94); // green-500
 
   tray = new Tray(ICON_DISCONNECTED);
   await refreshTray();
