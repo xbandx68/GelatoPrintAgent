@@ -2,12 +2,12 @@ const Jimp = require('jimp');
 const config = require('../config');
 
 // Print dimensions (what the printer receives): 96px wide × 320px tall
-const PRINT_W = config.LABEL_WIDTH_PX;    // 96  (= 12mm @ 8dpi/mm)
-const PRINT_H = config.LABEL_HEIGHT_PX;   // 320 (= 40mm @ 8dpi/mm)
+const PRINT_W = config.LABEL_WIDTH_PX;    // 96  (= 12mm)
+const PRINT_H = config.LABEL_HEIGHT_PX;   // 320 (= 40mm)
 
-// Render canvas for LANDSCAPE layout: wide × short, then rotated 90° CW
-const RENDER_W = PRINT_H;  // 320px wide (= 40mm)
-const RENDER_H = PRINT_W;  //  96px tall (= 12mm)
+// Render canvas — LANDSCAPE: wide × short, then rotated 90° CW → 96×320
+const RENDER_W = PRINT_H;  // 320px  (40mm, horizontal)
+const RENDER_H = PRINT_W;  //  96px  (12mm, vertical)
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -19,28 +19,25 @@ const RENDER_H = PRINT_W;  //  96px tall (= 12mm)
 async function textToBitmap(text) {
   const image = await Jimp.create(RENDER_W, RENDER_H, 0xffffffff);
   const font  = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
-
   image.print(
-    font, 4, 4,
-    { text, alignmentX: Jimp.HORIZONTAL_ALIGN_LEFT, alignmentY: Jimp.VERTICAL_ALIGN_TOP },
-    RENDER_W - 8, RENDER_H - 8
+    font, 5, 5,
+    { text, alignmentX: Jimp.HORIZONTAL_ALIGN_LEFT },
+    RENDER_W - 10
   );
-
   return _rotateTo1bpp(image);
 }
 
 /**
- * Render a structured gelato label (title / subtitle / price) into a 1bpp bitmap.
+ * Render a structured gelato label into a 1bpp bitmap.
  *
- * Landscape canvas: 320×96px
- *   ┌──────────────────────────────────────────────┐
- *   │ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄  │ ← border top
- *   │ Title (32px)                  Price (32px)  │
- *   │ ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄  │ ← separator
- *   │ Subtitle (16px)                              │
- *   └──────────────────────────────────────────────┘
+ * Landscape canvas (320×96px):
  *
- * Then rotated 90° CW → 96×320 sent to printer.
+ *  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ *  Banana Breeze (FONT_16, left)   3,50 EUR (FONT_32, right)
+ *  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ *  Sorbetto banana, calamansi e cocco (FONT_8)
+ *
+ * Then rotated 90° CW → 96×320 for the printer.
  *
  * @param {{ title: string, subtitle?: string, price?: string }} params
  * @returns {Promise<Buffer>}
@@ -48,31 +45,52 @@ async function textToBitmap(text) {
 async function labelToBitmap({ title, subtitle, price }) {
   const image = await Jimp.create(RENDER_W, RENDER_H, 0xffffffff);
 
+  // FONT_SANS_32 = 32px tall  (~19px per avg char)
+  // FONT_SANS_16 = 16px tall  (~10px per avg char)
+  // FONT_SANS_8  =  8px tall  ( ~5px per avg char)
   const fontLg = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
-  const fontSm = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
+  const fontMd = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
+  const fontSm = await Jimp.loadFont(Jimp.FONT_SANS_8_BLACK);
 
-  // Top border
+  // ── Top border ──
   _hline(image, 2);
   _hline(image, 3);
 
-  // Title — left-aligned, max 60% width
-  const titleMaxW = Math.floor(RENDER_W * 0.6);
-  image.print(fontLg, 5, 6, { text: title, alignmentX: Jimp.HORIZONTAL_ALIGN_LEFT }, titleMaxW);
+  // ── Row 1: Title (FONT_16, left) + Price (FONT_32, right) ──
+  //   canvas height = 96px
+  //   price 32px tall: centered in y → y = (96-32)/2 = 32, but
+  //   we want title+separator+subtitle, so use y=8 for title row
+  //
+  //   title area:  x=5,   maxW=180px  (fits "Banana Breeze" in FONT_16 ≈ 120px)
+  //   price area:  x=190, maxW=125px, right-aligned
+  //                "3,50 EUR" in FONT_32 ≈ 8chars × ~19px = ~152px → too wide
+  //                "3,50 EUR" in FONT_16 ≈ 8chars × ~10px =  ~80px → fits ✓
+  //
+  //   Use FONT_32 for price only, but keep text short (pass "3,50 €" not "3,50 EUR")
+  //   The user passes whatever price string — keep FONT_16 to be safe.
 
-  // Price — right side, right-aligned
+  // Title — FONT_16, vertically centered in top half (~y=16 to center 16px in 40px)
+  const titleY = 12;
+  image.print(fontMd, 5, titleY, { text: title, alignmentX: Jimp.HORIZONTAL_ALIGN_LEFT }, 180);
+
+  // Price — FONT_32, right side, starts at x=190
+  const priceY = 6;
   if (price) {
-    const priceX = RENDER_W - 5 - 120; // 120px reserved for price
-    image.print(fontLg, priceX, 6, { text: price, alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT }, 120);
+    image.print(fontLg, 190, priceY,
+      { text: price, alignmentX: Jimp.HORIZONTAL_ALIGN_RIGHT }, 125
+    );
   }
 
-  // Middle separator (below 32px title + 6px top margin + 2px padding)
-  const sepY = 42;
+  // ── Middle separator ──
+  const sepY = 44;
   _hline(image, sepY);
   _hline(image, sepY + 1);
 
-  // Subtitle — below separator
+  // ── Row 2: Subtitle ── FONT_8, full width
   if (subtitle) {
-    image.print(fontSm, 5, sepY + 4, { text: subtitle, alignmentX: Jimp.HORIZONTAL_ALIGN_LEFT }, RENDER_W - 10);
+    image.print(fontSm, 5, sepY + 5,
+      { text: subtitle, alignmentX: Jimp.HORIZONTAL_ALIGN_LEFT }, RENDER_W - 10
+    );
   }
 
   return _rotateTo1bpp(image);
@@ -80,30 +98,21 @@ async function labelToBitmap({ title, subtitle, price }) {
 
 // ─── Internals ───────────────────────────────────────────────────────────────
 
-/**
- * Draw a horizontal line across the full canvas width.
- */
 function _hline(image, y) {
-  for (let x = 0; x < RENDER_W; x++) {
-    image.setPixelColor(0x000000ff, x, y);
-  }
+  for (let x = 0; x < RENDER_W; x++) image.setPixelColor(0x000000ff, x, y);
 }
 
 /**
- * Rotate image 90° clockwise, then convert to 1bpp bitmap.
- * Input: RENDER_W × RENDER_H (320×96)
- * Output buffer: PRINT_W × PRINT_H (96×320) = 12 bytes/line × 320 lines
+ * Rotate 90° CW, then convert to 1bpp.
+ * 320×96 → (after rotate) 96×320 → 3840 bytes
  */
 function _rotateTo1bpp(image) {
-  // Jimp rotate() is counter-clockwise; use -90 for clockwise
-  image.rotate(-90);
-  // After rotate: image is now PRINT_W × PRINT_H (96 × 320)
+  image.rotate(-90); // Jimp: negative = clockwise
   return imageTo1bpp(image);
 }
 
 /**
  * Convert a Jimp image to 1bpp packed bitmap (MSB-first, row-major).
- * Dark pixels (brightness < 128) → bit 1 (printed black).
  * @param {Jimp} image
  * @returns {Buffer}
  */
