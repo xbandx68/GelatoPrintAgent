@@ -12,8 +12,11 @@ if (!gotLock) { app.quit(); process.exit(0); }
 
 // ── Boot Express server ───────────────────────────────────────────────────────
 require('../src/server.js');
-const printerService = require('../src/services/printer.service');
-const config         = require('../src/config');
+const config = require('../src/config');
+
+// NOTE: printerService is NOT imported directly — when the server was already
+// running in another process (EADDRINUSE), its printerService is a different
+// instance. Always read connection state via HTTP to get the real status.
 
 // ── Icon builder — Jimp PNG (works reliably as Windows tray icon) ─────────────
 async function buildCircleIcon(r, g, b) {
@@ -73,9 +76,17 @@ function httpGet(path) {
 
 // ── Tray ──────────────────────────────────────────────────────────────────────
 let tray = null;
+let _connected = false; // cached state, updated via HTTP polling
+
+async function fetchConnected() {
+  try {
+    const status = await httpGet('/printer/status');
+    return !!status.connected;
+  } catch { return false; }
+}
 
 async function buildMenu() {
-  const connected = printerService.isConnected;
+  const connected = _connected;
   const ip        = getLocalIp();
 
   return Menu.buildFromTemplate([
@@ -122,7 +133,8 @@ async function buildMenu() {
 
 async function refreshTray() {
   if (!tray) return;
-  const connected = printerService.isConnected;
+  _connected = await fetchConnected();
+  const connected = _connected;
   tray.setImage(connected ? ICON_CONNECTED : ICON_DISCONNECTED);
   tray.setToolTip(connected
     ? `Gelato Print Agent — Connesso  |  ${config.MDNS_NAME}.local:${config.PORT}`
