@@ -1,4 +1,5 @@
 const Jimp = require('jimp');
+const { Resvg } = require('@resvg/resvg-js');
 const config = require('../config');
 
 // Print dimensions (what the printer receives): 96px wide × 320px tall
@@ -135,36 +136,67 @@ function imageTo1bpp(image, threshold = 128) {
 }
 
 /**
- * Convert a base64 image (PNG/JPG) to a 1bpp printer bitmap.
+ * Convert an image (PNG/JPG base64 OR SVG string) to a 1bpp printer bitmap.
  *
- * The image is resized to fit the printer dimensions using CONTAIN
- * (white letterboxing), then optionally rotated 90° CW.
+ * Auto-detects input type:
+ *   - SVG string / data:image/svg+xml → rasterized via @resvg/resvg-js (vector quality)
+ *   - PNG/JPG base64 / data-URL       → decoded via Jimp
  *
- * @param {string} base64  Raw base64 or data-URL (data:image/png;base64,...)
+ * The image is then resized with CONTAIN (white letterbox) to the render
+ * canvas, optionally rotated 90° CW, and converted to 1bpp.
+ *
+ * @param {string} input   SVG string or base64 PNG/JPG (with or without data-URL prefix)
  * @param {object} opts
- * @param {boolean} [opts.rotate=true]     Rotate 90° CW (use true for landscape images)
- * @param {number}  [opts.threshold=128]   Brightness threshold for black pixel
+ * @param {boolean} [opts.rotate=true]    Rotate 90° CW for landscape images
+ * @param {number}  [opts.threshold=128]  Brightness threshold for black pixel
  * @returns {Promise<Buffer>}
  */
-async function base64ToBitmap(base64, { rotate = true, threshold = 128 } = {}) {
-  // Strip data-URL prefix if present
-  const raw = base64.replace(/^data:image\/[a-z]+;base64,/, '');
-  const buf = Buffer.from(raw, 'base64');
+async function base64ToBitmap(input, { rotate = true, threshold = 128 } = {}) {
+  const targetW = rotate ? RENDER_W : PRINT_W;   // 320 or 96
+  const targetH = rotate ? RENDER_H : PRINT_H;   //  96 or 320
 
-  const image = await Jimp.read(buf);
+  let image;
 
-  if (rotate) {
-    // Frontend sends landscape (wide) image → resize to 320×96 → rotate → 96×320
-    image.contain(RENDER_W, RENDER_H, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
+  if (_isSvg(input)) {
+    // ── SVG path: rasterize at exact target resolution ──────────────────────
+    const svgStr = input.startsWith('data:image/svg')
+      ? Buffer.from(input.split(',')[1], 'base64').toString('utf8')
+      : input;
+
+    const resvg = new Resvg(svgStr, {
+      fitTo: { mode: 'width', value: targetW },
+      background: 'white',
+    });
+    const rendered = resvg.render();
+    const pngBuf   = rendered.asPng();
+
+    image = await Jimp.read(pngBuf);
+    // Fit height too (SVG might have different aspect ratio)
+    image.contain(targetW, targetH, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
     image.background(0xffffffff);
-    image.rotate(-90);
+
+    console.log(`[Bitmap] SVG rasterized at ${targetW}×${targetH}`);
   } else {
-    // Frontend sends portrait (tall) image → resize directly to 96×320
-    image.contain(PRINT_W, PRINT_H, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
+    // ── Raster path: base64 PNG/JPG ─────────────────────────────────────────
+    const raw = input.replace(/^data:image\/[a-z+]+;base64,/, '');
+    const buf = Buffer.from(raw, 'base64');
+
+    image = await Jimp.read(buf);
+    image.contain(targetW, targetH, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
     image.background(0xffffffff);
   }
 
+  if (rotate) image.rotate(-90); // landscape → portrait for printer
+
   return imageTo1bpp(image, threshold);
+}
+
+function _isSvg(input) {
+  return (
+    input.trimStart().startsWith('<svg') ||
+    input.trimStart().startsWith('<?xml') ||
+    input.startsWith('data:image/svg')
+  );
 }
 
 module.exports = { textToBitmap, labelToBitmap, base64ToBitmap, imageTo1bpp };

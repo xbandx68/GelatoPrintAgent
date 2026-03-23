@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@abandonware/noble": "^1.9.2-26",
+    "@resvg/resvg-js": "^2.6.2",
     "express": "^4.18.3",
     "jimp": "^0.22.12"
   },
