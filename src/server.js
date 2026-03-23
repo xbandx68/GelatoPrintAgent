@@ -28,7 +28,7 @@ app.use('/printer', printerRoutes);
 app.use('/print', printRoutes);
 
 // Start server on all interfaces so LAN devices can reach it
-app.listen(config.PORT, '0.0.0.0', () => {
+const server = app.listen(config.PORT, '0.0.0.0', () => {
   const localIp = _getLocalIp();
   console.log(`[Agent] Gelato Print Agent running on http://${localIp}:${config.PORT}`);
   console.log(`[Agent] mDNS: http://${config.MDNS_NAME}.local:${config.PORT}`);
@@ -36,6 +36,14 @@ app.listen(config.PORT, '0.0.0.0', () => {
   // Announce via mDNS so any device on the same network can discover the agent
   const bonjour = new Bonjour();
   bonjour.publish({ name: config.MDNS_NAME, type: 'http', port: config.PORT });
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.warn(`[Agent] Port ${config.PORT} already in use — server already running, skipping.`);
+  } else {
+    throw err;
+  }
 });
 
 function _getLocalIp() {
