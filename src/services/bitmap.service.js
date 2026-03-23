@@ -172,8 +172,8 @@ async function base64ToBitmap(input, { rotate = true, threshold = 128 } = {}) {
 
     image = await Jimp.read(pngBuf);
     // Fit height too (SVG might have different aspect ratio)
-    image.contain(targetW, targetH, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
     image.background(0xffffffff);
+    image.contain(targetW, targetH, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
 
     console.log(`[Bitmap] SVG rasterized at ${targetW}×${targetH}`);
   } else {
@@ -182,8 +182,8 @@ async function base64ToBitmap(input, { rotate = true, threshold = 128 } = {}) {
     const buf = Buffer.from(raw, 'base64');
 
     image = await Jimp.read(buf);
-    image.contain(targetW, targetH, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
     image.background(0xffffffff);
+    image.contain(targetW, targetH, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
   }
 
   if (rotate) image.rotate(-90); // landscape → portrait for printer
