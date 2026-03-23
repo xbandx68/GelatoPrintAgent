@@ -134,13 +134,17 @@ async function refreshTray() {
 // ── Scan & connect ────────────────────────────────────────────────────────────
 async function scanAndConnect() {
   try {
+    tray.setToolTip('Gelato Print Agent — Scansione in corso…');
     const { devices } = await httpGet('/printer/devices');
     if (!devices || devices.length === 0) {
+      await refreshTray();
       dialog.showMessageBox({ type: 'info', title: 'Gelato Print Agent', message: 'Nessuna stampante trovata.' });
       return;
     }
     const target = devices.find(d => d.name?.toUpperCase().includes('P15')) || devices[0];
     const result = await httpPost('/printer/connect', { deviceId: target.id });
+    // Small delay to let printerService.isConnected update before reading it
+    await new Promise(r => setTimeout(r, 500));
     refreshTray();
     if (result.connected) {
       dialog.showMessageBox({ type: 'info', title: 'Gelato Print Agent', message: `Connesso a ${target.name || target.id}` });
@@ -163,8 +167,8 @@ app.whenReady().then(async () => {
   tray = new Tray(ICON_DISCONNECTED);
   await refreshTray();
 
-  // Poll printer status every 5s to keep tray in sync
-  setInterval(refreshTray, 5000);
+  // Poll printer status every 2s to keep tray in sync
+  setInterval(refreshTray, 2000);
 });
 
 app.on('window-all-closed', () => {}); // keep alive when no windows open
