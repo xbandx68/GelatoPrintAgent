@@ -44,6 +44,23 @@ router.post('/label', async (req, res) => {
   }
 });
 
+// POST /print/image  — base64 PNG/JPG dal frontend → stampa diretta
+// Body: { image: "base64...", rotate?: true, threshold?: 128, copies?: 1 }
+router.post('/image', async (req, res) => {
+  const { image, rotate = true, threshold = 128, copies = 1 } = req.body;
+  if (!image) return res.status(400).json({ error: 'image (base64) required' });
+
+  try {
+    const jobId = await queueService.enqueue(() =>
+      printService.printImage({ image, rotate, threshold, copies })
+    );
+    res.json({ queued: true, jobId });
+  } catch (err) {
+    console.error('[Route] Print image error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /print/queue  — stato coda
 router.get('/queue', (req, res) => {
   res.json({ pending: queueService.getQueueLength() });

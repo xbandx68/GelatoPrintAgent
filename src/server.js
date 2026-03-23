@@ -5,7 +5,7 @@ const printRoutes = require('./routes/print.routes');
 
 const app = express();
 
-app.use(express.json());
+app.use(express.json({ limit: '5mb' })); // base64 images can be large
 
 // CORS: allow requests from local webapp
 app.use((req, res, next) => {

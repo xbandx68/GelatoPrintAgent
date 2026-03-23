@@ -56,4 +56,23 @@ function _ensureConnected() {
   }
 }
 
-module.exports = { printReplay, printText, printLabel };
+/**
+ * Print from a base64 image sent by the frontend.
+ * The frontend renders the label (HTML canvas → PNG → base64) and sends it here.
+ * @param {{ image: string, rotate?: boolean, threshold?: number, copies?: number }} params
+ */
+async function printImage({ image, rotate = true, threshold = 128, copies = 1 }) {
+  _ensureConnected();
+  console.log(`[Print] Image (rotate:${rotate}, threshold:${threshold}) ×${copies}`);
+
+  const bitmap   = await bitmapService.base64ToBitmap(image, { rotate, threshold });
+  const printBuf = packetService.buildPrintBuffer(bitmap, config.LABEL_WIDTH_PX, config.LABEL_HEIGHT_PX);
+  const chunks   = packetService.buildChunks(printBuf);
+
+  for (let i = 0; i < copies; i++) {
+    if (copies > 1) console.log(`[Print] Copy ${i + 1}/${copies}`);
+    await printerService.sendChunks(chunks);
+  }
+}
+
+module.exports = { printReplay, printText, printLabel, printImage };

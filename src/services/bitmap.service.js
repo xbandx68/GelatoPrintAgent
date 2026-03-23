@@ -116,7 +116,7 @@ function _rotateTo1bpp(image) {
  * @param {Jimp} image
  * @returns {Buffer}
  */
-function imageTo1bpp(image) {
+function imageTo1bpp(image, threshold = 128) {
   const { width, height } = image.bitmap;
   const bytesPerRow = Math.ceil(width / 8);
   const buf = Buffer.alloc(bytesPerRow * height, 0);
@@ -124,14 +124,47 @@ function imageTo1bpp(image) {
   for (let row = 0; row < height; row++) {
     for (let col = 0; col < width; col++) {
       const rgba = Jimp.intToRGBA(image.getPixelColor(col, row));
-      if ((rgba.r + rgba.g + rgba.b) / 3 < 128) {
+      if ((rgba.r + rgba.g + rgba.b) / 3 < threshold) {
         buf[row * bytesPerRow + Math.floor(col / 8)] |= 1 << (7 - (col % 8));
       }
     }
   }
 
-  console.log(`[Bitmap] ${width}×${height} → ${buf.length} bytes (1bpp)`);
+  console.log(`[Bitmap] ${width}×${height} → ${buf.length} bytes (1bpp, threshold:${threshold})`);
   return buf;
 }
 
-module.exports = { textToBitmap, labelToBitmap, imageTo1bpp };
+/**
+ * Convert a base64 image (PNG/JPG) to a 1bpp printer bitmap.
+ *
+ * The image is resized to fit the printer dimensions using CONTAIN
+ * (white letterboxing), then optionally rotated 90° CW.
+ *
+ * @param {string} base64  Raw base64 or data-URL (data:image/png;base64,...)
+ * @param {object} opts
+ * @param {boolean} [opts.rotate=true]     Rotate 90° CW (use true for landscape images)
+ * @param {number}  [opts.threshold=128]   Brightness threshold for black pixel
+ * @returns {Promise<Buffer>}
+ */
+async function base64ToBitmap(base64, { rotate = true, threshold = 128 } = {}) {
+  // Strip data-URL prefix if present
+  const raw = base64.replace(/^data:image\/[a-z]+;base64,/, '');
+  const buf = Buffer.from(raw, 'base64');
+
+  const image = await Jimp.read(buf);
+
+  if (rotate) {
+    // Frontend sends landscape (wide) image → resize to 320×96 → rotate → 96×320
+    image.contain(RENDER_W, RENDER_H, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
+    image.background(0xffffffff);
+    image.rotate(-90);
+  } else {
+    // Frontend sends portrait (tall) image → resize directly to 96×320
+    image.contain(PRINT_W, PRINT_H, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
+    image.background(0xffffffff);
+  }
+
+  return imageTo1bpp(image, threshold);
+}
+
+module.exports = { textToBitmap, labelToBitmap, base64ToBitmap, imageTo1bpp };
