@@ -79,25 +79,25 @@ async function sendReplayPackets(buffers) {
 async function sendChunks(chunks) {
   _ensureConnected();
 
-  // Init
-  console.log('[Printer] Init...');
-  await _write(Buffer.from(config.CMD_INIT));
-  await _sleep(config.INIT_DELAY_MS);
+  // Build packet list: init + pre-print + data (same timing as validated replay)
+  const packets = [
+    Buffer.from(config.CMD_INIT),
+    Buffer.from(config.CMD_PREPRINT),
+    ...chunks,
+  ];
 
-  // Pre-print
-  console.log('[Printer] Pre-print...');
-  await _write(Buffer.from(config.CMD_PREPRINT));
-  await _sleep(config.PREPRINT_DELAY_MS);
+  console.log(`[Printer] Sending job: ${packets.length} packets (2 ctrl + ${chunks.length} data)`);
 
-  // Data chunks
-  for (let i = 0; i < chunks.length; i++) {
-    console.log(`[Printer] Chunk ${i + 1}/${chunks.length} (${chunks[i].length}B)`);
-    await _write(chunks[i]);
-    await _sleep(config.CHUNK_DELAY_MS);
+  for (let i = 0; i < packets.length; i++) {
+    if (i === 0) console.log('[Printer] → Init');
+    else if (i === 1) console.log('[Printer] → Pre-print');
+    else console.log(`[Printer] → Chunk ${i - 1}/${chunks.length}`);
+
+    await _write(packets[i]);
+    await _sleep(30); // same delay as validated replay
   }
 
-  // Wait for printer to finish
-  console.log('[Printer] Waiting for job to settle...');
+  console.log('[Printer] All packets sent — settling...');
   await _sleep(config.JOB_SETTLE_MS);
   console.log('[Printer] Job complete');
 }

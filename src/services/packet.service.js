@@ -46,7 +46,12 @@ function buildPrintBuffer(bitmapBuffer, width, height) {
     Buffer.from([0x10, 0xff, 0xf1, 0x45]),   // job end
   ]);
 
-  return Buffer.concat([header, bitmapBuffer, footer]);
+  // Pad so footer lands at the very END of the last chunk (matches replay format)
+  const rawSize = header.length + bitmapBuffer.length + footer.length;
+  const paddedSize = Math.ceil(rawSize / config.CHUNK_SIZE) * config.CHUNK_SIZE;
+  const padding = Buffer.alloc(paddedSize - rawSize, 0);
+
+  return Buffer.concat([header, bitmapBuffer, padding, footer]);
 }
 
 /**
